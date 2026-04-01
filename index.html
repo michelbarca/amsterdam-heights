@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amsterdam 3D Building Heights</title>
+
+  <!-- CesiumJS 1.110 -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Cesium.js"></script>
+  <link  href="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; }
+    #cesiumContainer { position: absolute; inset: 0; }
+
+    /* ── Hide Cesium built-in chrome ──────────────────── */
+    .cesium-viewer-toolbar,
+    .cesium-viewer-bottom,
+    .cesium-credit-container,
+    .cesium-widget-credits              { display: none !important; }
+
+    /* ── Shared panel style ───────────────────────────── */
+    .panel {
+      position: absolute;
+      background: rgba(13, 16, 26, 0.91);
+      color: #e0e0e0;
+      border-radius: 12px;
+      box-shadow: 0 4px 22px rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(7px);
+      z-index: 100;
+    }
+
+    /* ── Controls panel ───────────────────────────────── */
+    #controls { top: 15px; left: 15px; padding: 16px 18px; width: 230px; }
+    #controls h3 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 14px; }
+
+    .section-label {
+      font-size: 10px; color: #777; text-transform: uppercase;
+      letter-spacing: 0.8px; display: block; margin-bottom: 8px;
+    }
+
+    /* Source cards */
+    .source-cards { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    .source-card {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 11px; border-radius: 8px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.05);
+      transition: background .15s, border-color .15s;
+      user-select: none;
+    }
+    .source-card:hover  { background: rgba(255,255,255,0.10); }
+    .source-card.active { background: rgba(37,99,168,0.30); border-color: #4db8ff; }
+    .source-card input[type="radio"] { display: none; }
+    .source-icon { font-size: 20px; flex-shrink: 0; }
+    .source-info strong { display: block; font-size: 12px; color: #fff; margin-bottom: 2px; }
+    .source-info small  { font-size: 10px; color: #888; line-height: 1.4; }
+    .source-badge {
+      margin-left: auto; flex-shrink: 0;
+      font-size: 9px; font-weight: 700; padding: 2px 6px;
+      border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge-est   { background: rgba(255,200,0,0.20); color: #ffcc44; }
+    .badge-lidar { background: rgba(0,220,100,0.20); color: #00dd66; }
+
+    /* Sliders */
+    .ctrl-group { margin-bottom: 11px; }
+    .ctrl-group label {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: #aaa; margin-bottom: 5px;
+    }
+    .ctrl-group label span { color: #fff; font-weight: 600; }
+    input[type="range"] { width: 100%; accent-color: #4db8ff; cursor: pointer; }
+
+    .divider { border: none; border-top: 1px solid rgba(255,255,255,0.07); margin: 13px 0; }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 7px; }
+    .btn {
+      flex: 1; padding: 7px 4px; font-size: 11px; border: none;
+      border-radius: 7px; cursor: pointer; font-weight: 600;
+      transition: background .15s, transform .1s;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn-primary   { background: #2563a8; color: #fff; }
+    .btn-primary:hover  { background: #2f77c8; }
+    .btn-secondary { background: rgba(255,255,255,0.10); color: #ddd; }
+    .btn-secondary:hover { background: rgba(255,255,255,0.18); }
+
+    .tip { margin-top: 12px; font-size: 10px; color: #555; line-height: 1.65; }
+
+    /* ── Legend ───────────────────────────────────────── */
+    #legend { bottom: 42px; right: 15px; padding: 14px 16px; min-width: 155px; }
+    #legend h4 {
+      font-size: 11px; font-weight: 700; color: #fff;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      margin-bottom: 12px; text-align: center;
+    }
+    .legend-bar { display: flex; align-items: stretch; gap: 10px; }
+    .gradient-bar {
+      width: 18px; height: 220px; border-radius: 5px; flex-shrink: 0;
+      background: linear-gradient(to bottom,
+        #5500ff  0%,
+        #ff0088 20%,
+        #ff2200 40%,
+        #ff8000 60%,
+        #ffff00 80%,
+        #00cc44 100%
+      );
+    }
+    .legend-labels {
+      display: flex; flex-direction: column; justify-content: space-between;
+      font-size: 11px; color: #bbb; height: 220px;
+    }
+    #legend footer {
+      margin-top: 10px; font-size: 10px; color: #444;
+      text-align: center; border-top: 1px solid rgba(255,255,255,0.07); padding-top: 8px;
+    }
+
+    /* ── Building info panel ──────────────────────────── */
+    #building-info {
+      top: 15px; right: 15px;
+      padding: 14px 16px; min-width: 230px; max-width: 290px;
+      display: none;
+    }
+    #building-info.visible { display: block; }
+    #building-info h4 {
+      font-size: 13px; font-weight: 700; color: #4db8ff;
+      margin-bottom: 10px; padding-right: 20px;
+    }
+    .info-close {
+      position: absolute; top: 10px; right: 12px;
+      cursor: pointer; color: #ff7070; font-size: 16px; line-height: 1;
+    }
+    .info-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .info-row:last-of-type { border-bottom: none; }
+    .info-label { color: #777; flex-shrink: 0; margin-right: 8px; }
+    .info-value { color: #fff; font-weight: 600; text-align: right; word-break: break-all; }
+    .height-bar-wrap { margin-top: 11px; }
+    .height-bar-track {
+      height: 6px; border-radius: 3px;
+      background: linear-gradient(to right,
+        #00cc44, #ffff00, #ff8000, #ff2200, #ff0088, #5500ff);
+    }
+    .height-bar-pin {
+      width: 3px; height: 12px; background: #fff; border-radius: 1px;
+      margin-top: -9px; position: relative;
+      transition: left .3s;
+    }
+
+    /* ── Status bar ───────────────────────────────────── */
+    #status-bar {
+      position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+      background: rgba(13,16,26,0.92); color: #fff;
+      padding: 8px 18px; border-radius: 20px; font-size: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+      pointer-events: none; opacity: 0; transition: opacity .3s;
+      z-index: 100; white-space: nowrap;
+    }
+    #status-bar.visible { opacity: 1; }
+    #status-bar.error   { color: #ff7070; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle; margin-right: 7px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Password gate ─────────────────────────────────────────────────────── -->
+<!-- SHA-256 of the password is stored here — plaintext never appears in source.
+     Default password: amsterdam
+     To change it: paste your new password into https://emn178.github.io/online-tools/sha256.html
+     and replace the PW_HASH value in the <script> below. -->
+<div id="pw-gate" style="
+  position:fixed;inset:0;z-index:99999;
+  background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);
+  display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;">
+  <div style="
+    background:rgba(255,255,255,0.07);backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,0.15);border-radius:16px;
+    padding:40px 48px;text-align:center;min-width:320px;
+    box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+    <div style="font-size:32px;margin-bottom:8px;">🏙️</div>
+    <h2 style="color:#fff;margin:0 0 4px;font-size:20px;font-weight:600;letter-spacing:.5px;">Amsterdam Heights</h2>
+    <p style="color:rgba(255,255,255,0.45);margin:0 0 28px;font-size:13px;">3D Building Visualisation</p>
+    <input id="pw-input" type="password" placeholder="Password" autocomplete="current-password" style="
+      width:100%;box-sizing:border-box;padding:12px 16px;font-size:15px;
+      border-radius:8px;border:1px solid rgba(255,255,255,0.2);
+      background:rgba(255,255,255,0.1);color:#fff;outline:none;
+      margin-bottom:12px;" />
+    <button id="pw-btn" style="
+      width:100%;padding:12px;font-size:15px;font-weight:600;
+      border:none;border-radius:8px;cursor:pointer;
+      background:linear-gradient(90deg,#e94560,#c23152);color:#fff;
+      transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      Enter
+    </button>
+    <p id="pw-err" style="color:#ff6b6b;margin:10px 0 0;font-size:13px;display:none;">Incorrect password — try again.</p>
+  </div>
+</div>
+
+<script>
+/* ── Password gate logic ─────────────────────────────────────────────────── */
+(function() {
+  // SHA-256 of the access password.  Default: "amsterdam"
+  // To change: generate a new hash at https://emn178.github.io/online-tools/sha256.html
+  var PW_HASH = '26c98ec3b46b0a4f7bd5e464268df74a0ca7af24f2f1ec6cfdc27b5122a598fa';
+  var STORAGE_KEY = 'ams3d-auth';
+
+  function removeGate() {
+    var g = document.getElementById('pw-gate');
+    if (g) g.remove();
+  }
+
+  // Already authenticated this browser?
+  if (localStorage.getItem(STORAGE_KEY) === PW_HASH) { removeGate(); return; }
+
+  async function verify() {
+    var pw = document.getElementById('pw-input').value;
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+    var hex = Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+    if (hex === PW_HASH) {
+      localStorage.setItem(STORAGE_KEY, PW_HASH);
+      removeGate();
+    } else {
+      document.getElementById('pw-err').style.display = 'block';
+      document.getElementById('pw-input').focus();
+    }
+  }
+
+  document.getElementById('pw-btn').addEventListener('click', verify);
+  document.getElementById('pw-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') verify();
+    document.getElementById('pw-err').style.display = 'none';
+  });
+})();
+</script>
+<!-- ── End password gate ──────────────────────────────────────────────────── -->
+
+<div id="cesiumContainer"></div>
+
+<!-- ── Controls ──────────────────────────────────────── -->
+<div class="panel" id="controls">
+  <h3>🏙️ Amsterdam Heights</h3>
+
+  <label class="section-label">3D height data source</label>
+  <div class="source-cards">
+
+    <label class="source-card active" id="card-3dbag">
+      <input type="radio" name="datasource" value="3dbag" checked />
+      <span class="source-icon">📡</span>
+      <div class="source-info">
+        <strong>3DBAG (LiDAR)</strong>
+        <small>Dutch gov. laser scan — all of Amsterdam, live streaming</small>
+      </div>
+      <span class="source-badge badge-lidar">LiDAR</span>
+    </label>
+
+    <label class="source-card" id="card-osm">
+      <input type="radio" name="datasource" value="osm" />
+      <span class="source-icon">🗺</span>
+      <div class="source-info">
+        <strong>OpenStreetMap</strong>
+        <small>Crowd-sourced 3D buildings (global coverage)</small>
+      </div>
+      <span class="source-badge badge-est">Estimated</span>
+    </label>
+
+  </div>
+
+  <hr class="divider" />
+
+  <div class="ctrl-group">
+    <label>Tilt <span id="pitch-val">60°</span></label>
+    <input type="range" id="pitch-slider" min="0" max="85" value="60" />
+  </div>
+  <div class="ctrl-group">
+    <label>Rotation <span id="bearing-val">−17°</span></label>
+    <input type="range" id="bearing-slider" min="-180" max="180" value="-17" />
+  </div>
+  <div class="ctrl-group">
+    <label>Opacity <span id="opacity-val">90%</span></label>
+    <input type="range" id="opacity-slider" min="10" max="100" value="90" />
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary"   id="reset-btn">↺ Reset</button>
+    <button class="btn btn-secondary" id="top-btn">⬆ Top-down</button>
+  </div>
+
+  <div class="tip">
+    🖱 Drag to pan · Scroll to zoom<br>
+    Right-drag to tilt &amp; rotate<br>
+    Click a building for details
+  </div>
+</div>
+
+<!-- ── Legend ─────────────────────────────────────────── -->
+<div class="panel" id="legend">
+  <h4>Building Height</h4>
+  <div class="legend-bar">
+    <div class="gradient-bar"></div>
+    <div class="legend-labels">
+      <span>≥ 50 m</span>
+      <span>40 m</span>
+      <span>30 m</span>
+      <span>20 m</span>
+      <span>10 m</span>
+      <span>&nbsp;0 m</span>
+    </div>
+  </div>
+  <footer id="legend-credit">© 3DBAG (TU Delft / Kadaster) · © OpenStreetMap</footer>
+</div>
+
+<!-- ── Building info ───────────────────────────────────── -->
+<div class="panel" id="building-info">
+  <span class="info-close" id="info-close">✕</span>
+  <h4>🏠 Building Details</h4>
+  <div id="info-rows"></div>
+  <div class="height-bar-wrap" id="height-bar-wrap" style="display:none">
+    <div class="height-bar-track"></div>
+    <div class="height-bar-pin" id="height-bar-pin"></div>
+  </div>
+</div>
+
+<!-- ── Status bar ─────────────────────────────────────── -->
+<div id="status-bar"></div>
+
+<script>
+/* ── Background-tab survival ────────────────────────────────────────────────
+   Chrome throttles Web Workers AND requestAnimationFrame when a tab is hidden,
+   which stops Cesium's terrain mesh pipeline and prevents imagery from loading.
+
+   Fix 1: spoof visibility so Cesium's own visibility checks pass.
+   Fix 2: replace rAF with PURE setTimeout (no dual-call with real rAF).
+          Calling both real rAF + setTimeout caused DOUBLE renders = half fps.
+   Fix 3: bypass the terrain Worker step using _createMeshSync, but only
+          when there are actually stuck tiles (early-exit when queues empty).
+────────────────────────────────────────────────────────────────────────── */
+(function() {
+  // Spoof visibility so Cesium's internal checks don't pause rendering.
+  Object.defineProperty(document, 'hidden',          { get: () => false, configurable: true });
+  Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+
+  // Replace rAF with PURE setTimeout — never call real rAF simultaneously.
+  // Real rAF + setTimeout together = each registered callback fires twice,
+  // causing two scene.render() calls per frame and halving the frame rate.
+  window.requestAnimationFrame = function(cb) {
+    return setTimeout(function() { try { cb(performance.now()); } catch(e) {} }, 16);
+  };
+  window.cancelAnimationFrame = clearTimeout;
+})();
+
+/* Terrain Worker bypass: force-complete mesh creation synchronously for tiles
+   stuck in state 3 (RECEIVED) or state 4 (TRANSFORMING).
+   Returns immediately when queues are empty — zero overhead at steady state.
+   Tree-walk (expensive) only runs when tilesWaitingForChildren > 0. */
+setInterval(function() {
+  var v = window._v;
+  if (!v) return;
+  var surface = v.scene.globe._surface;
+  if (!surface || !surface._tileProvider) return;
+  var qH = surface._tileLoadQueueHigh, qM = surface._tileLoadQueueMedium, qL = surface._tileLoadQueueLow;
+  var qTotal = (qH ? qH.length : 0) + (qM ? qM.length : 0) + (qL ? qL.length : 0);
+  var waiting = surface.tilesWaitingForChildren || 0;
+  if (qTotal === 0 && waiting === 0) return; // nothing to do — free CPU
+
+  var ts = surface._tileProvider.tilingScheme;
+  if (!ts) return;
+  var opts = { tilingScheme: ts, ellipsoid: ts.ellipsoid,
+               exaggeration: 1.0, exaggerationRelativeHeight: 0.0 };
+
+  function forceSync(tile) {
+    if (!tile || !tile.data || !tile.data.terrainData) return;
+    var state = tile.data.terrainState;
+    if (state !== 3 && state !== 4) return;
+    var td = tile.data.terrainData;
+    if (typeof td._createMeshSync !== 'function') return;
+    try {
+      var mesh = td._createMeshSync(
+        Object.assign({ x: tile.x, y: tile.y, level: tile.level }, opts));
+      if (mesh) { tile.data.mesh = mesh; tile.data.terrainState = 5; }
+    } catch(e) {}
+  }
+
+  if (qTotal > 0) {
+    [qH, qM, qL].forEach(function(q) { if (q) q.forEach(forceSync); });
+  }
+  if (waiting > 0) {
+    function walkTree(tile) {
+      if (!tile) return;
+      forceSync(tile);
+      if (tile._children) tile._children.forEach(walkTree);
+    }
+    (surface._levelZeroTiles || []).forEach(walkTree);
+  }
+}, 100);
+
+/* ═══════════════════════════════════════════════════════
+   Config
+═══════════════════════════════════════════════════════ */
+const TARGET_LNG   = 4.8952;
+const TARGET_LAT   = 52.3731;
+const GEOID_OFFSET = 45;      // metres: EGM geoid height for Amsterdam (ellipsoid → NAP)
+
+// Cesium Ion token (from index_rainbow.html – same project)
+Cesium.Ion.defaultAccessToken =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+  'eyJqdGkiOiJkNTc1MWI3Yi1lYTUwLTQzOWMtYmUzZi02ZDA5MWRkOWZjN2QiLCJpZCI6Mzc0MjA0LCJpYXQiOjE3NjcyNzkwMjR9.' +
+  '00FUJdhA1Ja5Ugf9VD8eIAmIGQuJM57hv0_S06pBjOY';
+
+/* ═══════════════════════════════════════════════════════
+   Cesium viewer
+   Uses CartoDB Voyager street-map tiles as base layer.
+   CartoDB allows crossOrigin requests from any origin
+   (including null/file://) so no localhost server needed.
+
+   NOTE: baseLayer: false + addImageryProvider() is used
+   instead of passing baseLayer to the constructor, because
+   the constructor path has a known issue in Cesium 1.110
+   where the imagery layer silently fails to render.
+═══════════════════════════════════════════════════════ */
+const cartoStreet = new Cesium.UrlTemplateImageryProvider({
+  url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+  subdomains: ['a', 'b', 'c', 'd'],
+  credit: new Cesium.Credit('© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>'),
+  maximumLevel: 20,
+  minimumLevel: 0,
+});
+
+const viewer = new Cesium.Viewer('cesiumContainer', {
+  terrainProvider:       new Cesium.EllipsoidTerrainProvider(),
+  baseLayer:             false,   // no default Bing layer; we add CartoDB below
+  baseLayerPicker:       false,
+  geocoder:              false,
+  homeButton:            false,
+  navigationHelpButton:  false,
+  sceneModePicker:       false,
+  selectionIndicator:    false,
+  infoBox:               false,
+  animation:             false,
+  timeline:              false,
+  fullscreenButton:      false,
+  vrButton:              false,
+});
+
+// Add CartoDB as the base imagery layer AFTER viewer construction.
+// Use the non-deprecated .add(new ImageryLayer(...)) API.
+viewer.imageryLayers.add(new Cesium.ImageryLayer(cartoStreet));
+
+// Expose viewer for runtime inspection
+window._v = viewer;
+
+// Disable atmospheric effects for a clean map look.
+viewer.scene.globe.showGroundAtmosphere = false;
+viewer.scene.globe.enableLighting       = false;  // tiles always full-brightness
+viewer.scene.skyAtmosphere.show         = false;
+viewer.scene.sun.show                   = false;
+viewer.scene.moon.show                  = false;
+viewer.shadows                          = false;
+// Do NOT set scene.light here.  A DirectionalLight with direction (1,1,-1)
+// was previously used but its direction has a negative dot product with
+// Amsterdam's surface normal, shadowing the globe black.  The default
+// Cesium SunLight is kept; globe.enableLighting=false above makes sun
+// position irrelevant for tile brightness.
+
+console.log('[basemap] CartoDB Voyager street map configured');
+showStatus('🗺 Street map loaded (CartoDB Voyager)', { duration: 3000 });
+
+// Initial camera
+const DEFAULT_VIEW = { lng: TARGET_LNG, lat: TARGET_LAT, height: 1800, pitch: -60, heading: -17 };
+viewer.camera.setView({
+  destination: Cesium.Cartesian3.fromDegrees(DEFAULT_VIEW.lng, DEFAULT_VIEW.lat, DEFAULT_VIEW.height),
+  orientation: {
+    heading: Cesium.Math.toRadians(DEFAULT_VIEW.heading),
+    pitch:   Cesium.Math.toRadians(DEFAULT_VIEW.pitch),
+    roll:    0,
+  },
+});
+
+/* ═══════════════════════════════════════════════════════
+   Rainbow GLSL shader
+   Height is computed by projecting positionWC onto the
+   "up" direction at the reference point (ground = 0 m).
+   For 3DBAG the tileset is shifted down by GEOID_OFFSET
+   first, so ground level lines up with ellipsoid height 0.
+═══════════════════════════════════════════════════════ */
+const refPos = Cesium.Cartesian3.fromDegrees(TARGET_LNG, TARGET_LAT, 0);
+
+function makeShader(opacityPct, groundOffsetM) {
+  const opacity  = (opacityPct ?? 90) / 100;
+  const gOffset  = groundOffsetM ?? 0;
+  return new Cesium.CustomShader({
+    uniforms: {
+      u_refX:      { type: Cesium.UniformType.FLOAT, value: refPos.x },
+      u_refY:      { type: Cesium.UniformType.FLOAT, value: refPos.y },
+      u_refZ:      { type: Cesium.UniformType.FLOAT, value: refPos.z },
+      u_gOffset:   { type: Cesium.UniformType.FLOAT, value: gOffset  },
+      u_opacity:   { type: Cesium.UniformType.FLOAT, value: opacity  },
+    },
+    fragmentShaderText: `
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        vec3 ref = vec3(u_refX, u_refY, u_refZ);
+        vec3 up  = normalize(ref);
+        // Vertical height above ground (metres)
+        float h  = dot(fsInput.attributes.positionWC - ref, up) - u_gOffset;
+        float t  = clamp(h / 50.0, 0.0, 1.0);
+
+        // Green → Yellow → Orange → Red → Magenta → Purple
+        vec3 col;
+        if      (t < 0.2) col = mix(vec3(0.0,  0.80, 0.267), vec3(1.0, 1.0,  0.0),  t           * 5.0);
+        else if (t < 0.4) col = mix(vec3(1.0,  1.0,  0.0),   vec3(1.0, 0.50, 0.0),  (t - 0.2)  * 5.0);
+        else if (t < 0.6) col = mix(vec3(1.0,  0.50, 0.0),   vec3(1.0, 0.13, 0.0),  (t - 0.4)  * 5.0);
+        else if (t < 0.8) col = mix(vec3(1.0,  0.13, 0.0),   vec3(1.0, 0.0,  0.53), (t - 0.6)  * 5.0);
+        else               col = mix(vec3(1.0,  0.0,  0.53),  vec3(0.33, 0.0, 1.0), (t - 0.8)  * 5.0);
+
+        material.diffuse = col;
+        material.alpha   = u_opacity;
+      }
+    `,
+  });
+}
+
+/* ═══════════════════════════════════════════════════════
+   Tileset management
+═══════════════════════════════════════════════════════ */
+let currentTileset = null;
+let currentSource  = 'none';
+
+function applyGeoidShift(tileset, metres) {
+  const up  = Cesium.Cartesian3.normalize(refPos, new Cesium.Cartesian3());
+  const vec = Cesium.Cartesian3.multiplyByScalar(up, -metres, new Cesium.Cartesian3());
+  const mat = Cesium.Matrix4.fromTranslation(vec);
+  tileset.modelMatrix = Cesium.Matrix4.multiply(mat, tileset.modelMatrix, new Cesium.Matrix4());
+}
+
+function getOpacity() {
+  return parseFloat(document.getElementById('opacity-slider').value);
+}
+
+async function activate3DBAG() {
+  if (currentTileset) { viewer.scene.primitives.remove(currentTileset); currentTileset = null; }
+  showStatus('⏳ Connecting to 3DBAG LiDAR tiles…', { loading: true });
+  try {
+    const ts = await Cesium.Cesium3DTileset.fromUrl(
+      'https://data.3dbag.nl/v20250903/cesium3dtiles/lod22/tileset.json'
+    );
+    viewer.scene.primitives.add(ts);
+    currentTileset = ts;
+    currentSource  = '3dbag';
+    // 3DBAG stores heights in Dutch NAP ≈ WGS84 ellipsoid + 45 m
+    // Shift tileset down so ground floor aligns with ellipsoid surface
+    applyGeoidShift(ts, GEOID_OFFSET);
+    ts.customShader = makeShader(getOpacity(), 0);
+    document.getElementById('legend-credit').textContent =
+      '© 3DBAG (TU Delft / Kadaster) · © OpenStreetMap';
+    showStatus('✔ 3DBAG LiDAR — all of Amsterdam, tiles stream as you navigate', { duration: 5000 });
+  } catch (err) {
+    showStatus(`⚠️ 3DBAG error: ${err.message}`, { error: true });
+  }
+}
+
+async function activateOSM() {
+  if (currentTileset) { viewer.scene.primitives.remove(currentTileset); currentTileset = null; }
+  showStatus('⏳ Loading OpenStreetMap 3D buildings…', { loading: true });
+  try {
+    // Cesium OSM Buildings: Ion asset 96188
+    // These are also stored in NAP-like absolute coordinates, apply same geoid shift
+    const ts = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
+    viewer.scene.primitives.add(ts);
+    currentTileset = ts;
+    currentSource  = 'osm';
+    applyGeoidShift(ts, GEOID_OFFSET);
+    ts.customShader = makeShader(getOpacity(), 0);
+    document.getElementById('legend-credit').textContent =
+      '© OpenStreetMap contributors · © Cesium Ion';
+    showStatus('✔ OSM buildings loaded', { duration: 4000 });
+  } catch (err) {
+    showStatus(`⚠️ OSM error: ${err.message}`, { error: true });
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   Source card wiring
+═══════════════════════════════════════════════════════ */
+document.querySelectorAll('input[name="datasource"]').forEach(radio => {
+  radio.addEventListener('change', e => {
+    document.querySelectorAll('.source-card').forEach(c => c.classList.remove('active'));
+    document.getElementById(`card-${e.target.value}`).classList.add('active');
+    if (e.target.value === '3dbag') activate3DBAG();
+    else activateOSM();
+  });
+});
+
+/* ═══════════════════════════════════════════════════════
+   Camera sliders
+═══════════════════════════════════════════════════════ */
+const pitchSlider   = document.getElementById('pitch-slider');
+const bearingSlider = document.getElementById('bearing-slider');
+const opacitySlider = document.getElementById('opacity-slider');
+const pitchVal      = document.getElementById('pitch-val');
+const bearingVal    = document.getElementById('bearing-val');
+const opacityVal    = document.getElementById('opacity-val');
+
+function setOrientation(pitchDeg, headingDeg) {
+  viewer.camera.setView({
+    destination: viewer.camera.position,
+    orientation: {
+      heading: Cesium.Math.toRadians(headingDeg),
+      pitch:   Cesium.Math.toRadians(-Math.abs(pitchDeg)),
+      roll:    0,
+    },
+  });
+}
+
+pitchSlider.addEventListener('input', () => {
+  const v = parseFloat(pitchSlider.value);
+  pitchVal.textContent = `${v}°`;
+  setOrientation(v, parseFloat(bearingSlider.value));
+});
+
+bearingSlider.addEventListener('input', () => {
+  const v = parseFloat(bearingSlider.value);
+  bearingVal.textContent = `${v < 0 ? '−' : ''}${Math.abs(v)}°`;
+  setOrientation(parseFloat(pitchSlider.value), v);
+});
+
+opacitySlider.addEventListener('input', () => {
+  const v = parseFloat(opacitySlider.value);
+  opacityVal.textContent = `${v}%`;
+  if (currentTileset) {
+    currentTileset.customShader = makeShader(v, 0);
+  }
+});
+
+// Sync sliders when user drags the globe with mouse
+viewer.camera.changed.addEventListener(
+) => {
+  const pitchDeg   = -Cesium.Math.toDegrees(viewer.camera.pitch);   // pitch is ≤ 0 in Cesium
+  const headingDeg = Cesium.Math.toDegrees(viewer.camera.heading);
+  const p = Math.min(85, Math.max(0, pitchDeg));
+  pitchSlider.value = String(p.toFixed(0));
+  pitchVal.textContent = `${p.toFixed(0)}°`;
+  let b = ((headingDeg % 360) + 360) % 360;
+  if (b > 180) b -= 360;
+  bearingSlider.value = String(b.toFixed(0));
+  bearingVal.textContent = `${b < 0 ? '−' : ''}${Math.abs(b).toFixed(0)}°`;
+});
+
+/* ═══════════════════════════════════════════════════════
+   Reset / Top-down buttons
+═══════════════════════════════════════════════════════ */
+document.getElementById('reset-btn').addEventListener('click', () => {
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(DEFAULT_VIEW.lng, DEFAULT_VIEW.lat, DEFAULT_VIEW.height),
+    orientation: {
+      heading: Cesium.Math.toRadians(DEFAULT_VIEW.heading),
+      pitch:   Cesium.Math.toRadians(DEFAULT_VIEW.pitch),
+      roll:    0,
+    },
+    duration: 1.2,
+  });
+  pitchSlider.value = '60';  pitchVal.textContent = '60°';
+  bearingSlider.value = '-17'; bearingVal.textContent = '−17°';
+});
+
+document.getElementById('top-btn').addEventListener('click', () => {
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(DEFAULT_VIEW.lng, DEFAULT_VIEW.lat, 3500),
+    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
+    duration: 1.0,
+  });
+  pitchSlider.value = '0';  pitchVal.textContent = '0°';
+  bearingSlider.value = '0'; bearingVal.textContent = '0°';
+});
+
+/* ═══════════════════════════════════════════════════════
+   Building info on click
+═══════════════════════════════════════════════════════ */
+const infoPanel = document.getElementById('building-info');
+const infoRows  = document.getElementById('info-rows');
+const hBarWrap  = document.getElementById('height-bar-wrap');
+const hBarPin   = document.getElementById('height-bar-pin');
+
+document.getElementById('info-close').addEventListener('click', () => {
+  infoPanel.classList.remove('visible');
+});
+
+const clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+clickHandler.setInputAction(click => {
+  const picked = viewer.scene.pick(click.position);
+  if (!Cesium.defined(picked)) {
+    infoPanel.classList.remove('visible');
+    return;
+  }
+
+  // Estimate height of clicked surface
+  let surfaceH = null;
+  const pos3d = viewer.scene.pickPosition(click.position);
+  if (Cesium.defined(pos3d)) {
+    const carto = Cesium.Cartographic.fromCartesian(pos3d);
+    // After the -45m geoid shift, ellipsoid height ≈ height above ground
+    surfaceH = Math.max(0, carto.height);
+  }
+
+  // Helper to safely read a feature property
+  function prop(name) {
+    try { return picked.getProperty?.(name) ?? null; }
+    catch { return null; }
+  }
+
+  const rows = [];
+
+  // Surface height from pick position (most reliable)
+  if (surfaceH !== null) {
+    rows.push({ label: 'Height (clicked face)', value: `${surfaceH.toFixed(1)} m` });
+  }
+
+  // 3DBAG-specific BAG / AHN attributes
+  const dbagAttrs = [
+    ['b3_h_dak_max',          'Roof height (max)'],
+    ['b3_h_dak_50p',          'Roof height (50 %)'],
+    ['b3_h_maaiveld',         'Ground level (NAP)'],
+    ['b3_bouwlagen',          'Floors'],
+    ['oorspronkelijkbouwjaar','Year built'],
+    ['status',                'Status'],
+    ['identificatie',         'BAG ID'],
+  ];
+  for (const [key, label] of dbagAttrs) {
+    const v = prop(key);
+    if (v != null && v !== '') {
+      let display = String(v);
+      if (key.startsWith('b3_h_')) display = `${parseFloat(v).toFixed(2)} m`;
+      rows.push({ label, value: display });
+    }
+  }
+
+  // OSM / Cesium fallback attributes
+  if (rows.length < 3) {
+    for (const [key, label] of [
+      ['name',       'Name'],
+      ['building',   'Type'],
+      ['height',     'Height'],
+      ['levels',     'Floors'],
+      ['start_date', 'Year built'],
+    ]) {
+      const v = prop(key);
+      if (v != null && v !== '') rows.push({ label, value: String(v) });
+    }
+  }
+
+  if (rows.length === 0) {
+    infoPanel.classList.remove('visible');
+    return;
+  }
+
+  infoRows.innerHTML = rows.map(r =>
+    `<div class="info-row">
+       <span class="info-label">${r.label}</span>
+       <span class="info-value">${r.value}</span>
+     </div>`
+  ).join('');
+
+  // Height colour bar
+  if (surfaceH !== null) {
+    const pct = Math.min(100, (surfaceH / 50) * 100);
+    hBarPin.style.left = `${pct}%`;
+    hBarWrap.style.display = 'block';
+  } else {
+    hBarWrap.style.display = 'none';
+  }
+
+  infoPanel.classList.add('visible');
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+/* ═══════════════════════════════════════════════════════
+   Status bar
+═══════════════════════════════════════════════════════ */
+var statusTimer = null;
+function showStatus(msg, { loading = false, error = false, duration = 0 } = {}) {
+  const bar = document.getElementById('status-bar');
+  bar.className = 'visible' + (error ? ' error' : '');
+  bar.innerHTML = loading ? `<span class="spinner"></span>${msg}` : msg;
+  if (statusTimer) clearTimeout(statusTimer);
+  if (duration > 0) statusTimer = setTimeout(() => bar.classList.remove('visible'), duration);
+}
+
+/* ═══════════════════════════════════════════════════════
+   Boot
+═══════════════════════════════════════════════════════ */
+activate3DBAG();
+</script>
+</body>
+</html>
